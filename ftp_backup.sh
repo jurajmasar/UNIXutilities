@@ -1,10 +1,36 @@
 #!/bin/bash
 
+
 # TODO {s sync|a ll|m odified|p reserve} L inks d irectories h iddenFiles
+# TODO make script posix compatible
 #
 # check dependency - ftp command
 #
 command -v ftp > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - ftp.  Aborting."; exit 1; }
+
+#
+# timeout for waiting for a response of a ftp server
+#
+timeout=3
+
+#
+# echoes everything from the output pipe until eof
+#
+print_outPipe()
+{
+	DONE=false
+	until $DONE; do
+		read -t $timeout line || DONE=true
+
+		# continue if the line is empty / white space only
+		[ -z `echo "$line" | tr -d "[[:space:]]"` ] && continue
+
+		# stop reading on simulated EOF -> output of a pwd command
+		[ `echo "$line" | sed -n '/^Remote directory: /p' | wc -l` -gt 0 ] && return
+
+		echo "$line"
+	done < $outPipe
+}
 
 #
 # prints usage instructions
@@ -77,17 +103,44 @@ if [ -z `echo "$password" | tr -d "[[:space:]]"` ] && [ "$3" = "${3/n/foo}" ]; t
 fi
 
 #
-# establish connection to remote location and try to log in
+# create a named pipes and attach file descriptors
 #
-ftpOutput=$( 
-ftp -i -f -n 2>&1 <<EOF
+inPipe="/tmp/inpipe.$$"
+mkfifo $inPipe
+exec 3<>$inPipe
+
+outPipe="/tmp/outpipe.$$"
+mkfifo $outPipe
+exec 4<>$outPipe
+
+# remember the current location
+OPWD=`pwd`
+# change location
+cd $localPath
+# change location and remove pipes on exit
+trap  "rm -f $inPipe $outPipe; cd $OPWD; exit;" EXIT
+
+#
+# establish connection to remote location via a pipe
+#
+ftp -i -f -n < $inPipe > $outPipe 2>&1 &
+
+#
+# try to log in
+#
+echo -e "
 open $server
 user $user $password
 mkdir $path
 cd $path
 ls -R
-EOF
-)
+pwd
+" > $inPipe
+
+# read ftp output
+ftpOutput=$( print_outPipe ) 
+# remove top two lines caused by mkdir
+ftpOutput=`echo "$ftpOutput" | sed -n '1!p'`
 
 #
 # parse output - look for failure
@@ -122,7 +175,7 @@ BEGIN{
 # fetch modification times from remote server 
 # if option m is used
 #
-if [ "$3" = "${3/m/foo}" ]; then
+if [ "$3" != "${3/m/foo}" ]; then 
 	# prepare ftp command
 	ftpCommand=""
 
@@ -131,31 +184,20 @@ if [ "$3" = "${3/m/foo}" ]; then
 			ftpCommand="${ftpCommand}modtime $name\n"			
 		fi
 	done <<< "$remoteFiles"
+
+	# insert simulated eof
+	ftpCommand="${ftpCommand}pwd\n"
 	
-	# translate \n into new lines
-	ftpCommand=`echo -e "$ftpCommand"`
+	# translate \n into new lines and send it to ftp process
+	echo -e "$ftpCommand" > $inPipe
 		
 	# fetch modification times
-ftpOutput=$( 
-ftp -i -f -n 2>&1 <<EOF
-open $server
-user $user $password
-cd $path
-${ftpCommand}
-EOF
-)
+	remoteModTimes=$( print_outPipe )
 fi
 
 #
 # get a list of local files
 #
-
-# remember the current location
-OPWD=`pwd`
-# change location
-cd $localPath
-# change location back on exit
-trap "cd $OPWD" EXIT
 
 # if links should be followed
 if [ "$3" = "${3/L/foo}" ]; then
@@ -192,12 +234,12 @@ if $upload; then
 			# if this is not an empty directory or if empty directories should be created as well			
 			if [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -eq 0 ] && [ `echo -e "$localFiles" | awk '{ print $1 }' | grep $localFilename | wc -l` -gt 1 -o "$3" != "${3/d/foo}" ]; then
 				ftpCommand="${ftpCommand}mkdir $localFilename\n"
-			elif [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -gt 0 ] ; do
+			elif [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -gt 0 ] ; then
 				# there is a file or a directory on a remote machine with the same name
 
 				# if we need to remove it
 				if [ "$3" != "${3/m/foo}" -o "$3" != "${3/s/foo}" -o "$3" != "${3/a/foo}"]; then	
-
+					cat > /dev/null
 				fi
 			fi
 		else
