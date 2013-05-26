@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# {s|a|m|n} Ld
+# TODO {s sync|a ll|m odified|p reserve} L inks d irectories h iddenFiles
 #
 # check dependency - ftp command
 #
@@ -69,10 +69,8 @@ if [ -z `echo "path" | tr -d "[[:space:]]"` ]; then
 fi
 
 #
-# check for options
-#
-
 # if password is empty after removing whitespace and third parameter does not contain letter n
+#
 if [ -z `echo "$password" | tr -d "[[:space:]]"` ] && [ "$3" = "${3/n/foo}" ]; then
 	read -s -p "Password: " password		
 	echo ""	
@@ -85,6 +83,8 @@ ftpOutput=$(
 ftp -i -f -n 2>&1 <<EOF
 open $server
 user $user $password
+mkdir $path
+cd $path
 ls -R
 EOF
 )
@@ -100,7 +100,7 @@ fi
 # get a list of remote files
 # -> translates the output of ls -R from ftp into a list of paths to files with the file type (-/d/l etc)
 #
-remoteFiles=`echo -e "$ftpOutput" | awk '
+remoteFiles=`echo -e "$ftpOutput" | sed -n '1!p' | awk '
 BEGIN{
 	prefix=""
 }; 
@@ -118,28 +118,118 @@ BEGIN{
 };
 '`
 
-echo -e "$remoteFiles" | while read name ftype x ; do
-	echo "$name"
-done
+#
+# fetch modification times from remote server 
+# if option m is used
+#
+if [ "$3" = "${3/m/foo}" ]; then
+	# prepare ftp command
+	ftpCommand=""
 
-exit 0;
+	while read name ftype x ; do
+		if [ -n "$name" ] && [ ! "$ftype" = "d" ]; then
+			ftpCommand="${ftpCommand}modtime $name\n"			
+		fi
+	done <<< "$remoteFiles"
+	
+	# translate \n into new lines
+	ftpCommand=`echo -e "$ftpCommand"`
+		
+	# fetch modification times
+ftpOutput=$( 
+ftp -i -f -n 2>&1 <<EOF
+open $server
+user $user $password
+cd $path
+${ftpCommand}
+EOF
+)
+fi
 
 #
-# prepare command for uploading
+# get a list of local files
 #
+
+# remember the current location
+OPWD=`pwd`
+# change location
+cd $localPath
+# change location back on exit
+trap "cd $OPWD" EXIT
+
+# if links should be followed
+if [ "$3" = "${3/L/foo}" ]; then
+	findParameters="-L"
+fi
+
+findParameters="$findParameters ."
+
+localFiles=`find $findParameters | sed -n '1!p' | sed 's/\.\/\(.*\)/\1/'`
+
+# if hidden files should be ignored
+if [ "$3" = "${3/L/foo}" ]; then
+	# exclude files starting with dot
+	localFiles=`echo -e "$localFiles" | awk '/^[^\.]/'`
+fi
+
+#
+# prepare command for uploading/downloading
+#
+ftpCommand=""
 if $upload; then
-	ftpCommand="mput *"
+	# build set of commands to manipulate files
+	echo "remote files:"
+	echo -e "$remoteFiles"
+	echo
+	
+	while read localFilename ; do
+		
+		if [ -d "$localFilename" ] ; then
+			# it is a directory
+			echo -e "Local directory: $localFilename"
+			
+			# if the remote directory does not exist
+			# if this is not an empty directory or if empty directories should be created as well			
+			if [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -eq 0 ] && [ `echo -e "$localFiles" | awk '{ print $1 }' | grep $localFilename | wc -l` -gt 1 -o "$3" != "${3/d/foo}" ]; then
+				ftpCommand="${ftpCommand}mkdir $localFilename\n"
+			elif [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -gt 0 ] ; do
+				# there is a file or a directory on a remote machine with the same name
+
+				# if we need to remove it
+				if [ "$3" != "${3/m/foo}" -o "$3" != "${3/s/foo}" -o "$3" != "${3/a/foo}"]; then	
+
+				fi
+			fi
+		else
+			echo > /dev/null
+			# it is a file
+			if [ "$3" != "${3/a/foo}" ]; then
+				# if all fiels should be rewrited
+				echo > /dev/null
+			fi			
+		fi
+		
+	done <<< "$localFiles"
+
 else
 	ftpCommand="mget *"
 fi
 
+# translate \n into new lines
+ftpCommand=`echo -e "$ftpCommand"`
+
+echo 
+echo -e "$ftpCommand"
+exit 1;
+
 echo "Transferring files..."
+echo
+echo "Ftp output:"
 
 #
 # attempt to transfer files
 #
-ftpOutput=$( 
-ftp -i -f -n 2>&1 <<EOF
+ftp -i -f -n -v <<EOF
 open $server
 user $user $password
 mkdir $path
@@ -147,14 +237,5 @@ cd $path
 lcd $localPath
 ${ftpCommand}
 EOF
-)	
-
-#
-# print summary and exit
-#
-if [[ "$ftpOutput" = *"fail"* ]]; then
-	echo "Transferring files failed. Aborting."; exit 1;		
-else
-	echo "Finished successfully."; exit 0;
-fi
-
+	
+echo "Finished."; 
