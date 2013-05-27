@@ -257,8 +257,9 @@ else
 	ftpCommand="mget *"
 fi
 
-# translate \n into new lines
-ftpCommand=`echo -e "$ftpCommand"`
+
+# translate \n into new lines and add simulated eof
+ftpCommand=`echo -e "${ftpCommand}pwd\n"`
 
 echo 
 echo -e "$ftpCommand"
@@ -271,13 +272,6 @@ echo "Ftp output:"
 #
 # attempt to transfer files
 #
-ftp -i -f -n -v <<EOF
-open $server
-user $user $password
-mkdir $path
-cd $path
-lcd $localPath
-${ftpCommand}
-EOF
+echo -e "$ftpCommand" > $inPipe
 	
 echo "Finished."; 
