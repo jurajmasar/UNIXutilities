@@ -1,6 +1,18 @@
 #!/bin/bash
 
 #
+#	FTPmirror 1.0
+#
+#	Utility for mirroring contents of folders via FTP,
+#   created as a project for Introduction to UNIX class
+#   at Charles University in Prague.
+#
+#	See ./FTPmirror --help for usage instructions.
+#
+#	Author: Juraj Masar <mail@jurajmasar.com> (27 May 2013)	
+#
+
+#
 # check dependencies
 #
 command -v ftp > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - ftp.  Aborting."; exit 1; }
@@ -24,8 +36,12 @@ print_usage()
 	echo "Usage: $0 sourcePath destinationPath [{s|a|m}|d|L|h]"
 }
 
+#
+# prints verbose description of the program
+#
 print_help()
 {
+	echo
 	print_version
 	echo
 	print_usage
@@ -33,7 +49,9 @@ print_help()
 
 read -d '' description <<"BLOCK"
 
-Utility for mirroring contents of folders via FTP.
+Utility for mirroring contents of folders via FTP,
+created as a project for Introduction to UNIX class
+at Charles University in Prague.
 
 Parameters:
 
@@ -41,20 +59,20 @@ Parameters:
 
   sourcePath       # Location of the folder to be mirrored
                    #
-  				   # Examples:
-  				   #   .
-  				   #   backups/
-  				   #   /var/backups/
-  				   #   user@example.com # will be asked for password interactively
-  				   #   user:password@example.com:path/
+                   # Examples:
+                   #   .
+                   #   backups/
+                   #   /var/backups/
+                   #   user@example.com # will be asked for password interactively
+                   #   user:password@example.com:path/
 
   destinationPath  # Destination of mirroring
-  				   # Examples:
-  				   #   .
-  				   #   backups/
-  				   #   /var/backups/
-  				   #   user@example.com # will be asked for password interactively
-  				   #   user:password@example.com:path/
+                   # Examples:
+                   #   .
+                   #   backups/
+                   #   /var/backups/
+                   #   user@example.com # will be asked for password interactively
+                   #   user:password@example.com:path/
 
   # Important:
   # One of sourcePath or destinationPath must be local and the other must be remote
@@ -66,12 +84,22 @@ Parameters:
     h              # Ignore hidden files
     n              # Do not ask for password interactively when password is not given
 
-  	mode:          # Files in destination folder DO NOT get overwritten by default.
-  	               # This behavior can be changed using following flags:
+    mode:          # Files in destination folder DO NOT get overwritten by default.
+                   # This behavior can be changed using following flags:
       
-                   s # Synchronization
-                   a 
-                   m
+                   s # Synchronize - In case of a conflict only files with older 
+                     #               modification date overwrite files with similar
+                     #               names in destionationPath. 
+                     #               Moreover, all files that are present in 
+                     #               destinationPath but are not present in 
+                     #               sourcePath are removed.
+                     #               
+                   a # All - In case of a conflict all files in destination become
+                     #       overwritten by their versions from sourcePath
+                     #
+                   m # Modified -  In case of a conflict only files with older 
+                     #             modification date overwrite files with similar
+                     #             names in destionationPath
     
 Special parameters:
   -v         # Display script version number and quit
@@ -82,7 +110,21 @@ Dependencies:
   date (GNU) # GNU version of the date utility
 
 Examples:
+  ./FTPmirror.sh backups/ juraj@cuni.cz:backups/
+  ./FTPmirror.sh backups/ juraj@cuni.cz:backups/ sdL
+  ./FTPmirror.sh juraj@cuni.cz:backups/ backups/ s
+  ./FTPmirror.sh backups/ juraj:password@cuni.cz:backups/ sdL # CRON job example
+  
+Author:
+  Juraj Masar
+  mail@jurajmasar.com
+  www.jurajmasar.com
 
+Copyright:
+  (c) Copyright Juraj Masar 2013.
+
+Release date:
+  27 May 2013
 
 BLOCK
 
@@ -499,7 +541,7 @@ else
 			# it is a file
 
 			# if a local file or a directory with such name exists
-			if [ `echo -e "$localFiles" | awk "/^${escapedRemoteFilename}/p" | wc -l` -gt 0 ]; then
+			if [ `echo -e "$localFiles" | sed -n "/^${escapedRemoteFilename}/p" | wc -l` -gt 0 ]; then
 
 				# if we might want to overwrite it
 				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
@@ -519,6 +561,7 @@ else
 					fi
 				fi
 			else
+
 				# transfer file
 				echo -e "get $remoteFilename\n" > $inPipe
 			fi			
