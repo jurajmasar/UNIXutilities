@@ -176,21 +176,15 @@ BEGIN{
 # if option m is used
 #
 if [ "$3" != "${3/m/foo}" ]; then 
-	# prepare ftp command
-	ftpCommand=""
-
 	while read name ftype x ; do
 		if [ -n "$name" ] && [ ! "$ftype" = "d" ]; then
-			ftpCommand="${ftpCommand}modtime $name\n"			
+			echo -e "modtime $name\n" > $inPipe
 		fi
 	done <<< "$remoteFiles"
 
 	# insert simulated eof
-	ftpCommand="${ftpCommand}pwd\n"
+	echo -e "pwd\n" > $inPipe
 	
-	# translate \n into new lines and send it to ftp process
-	echo -e "$ftpCommand" > $inPipe
-		
 	# fetch modification times
 	remoteModTimes=$( print_outPipe )
 fi
@@ -217,7 +211,6 @@ fi
 #
 # prepare command for uploading/downloading
 #
-ftpCommand=""
 if $upload; then
 	# build set of commands to manipulate files
 	echo "remote files:"
@@ -232,46 +225,42 @@ if $upload; then
 			# if the remote directory does not exist
 			# if this is not an empty directory or if empty directories should be created as well			
 			if [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -eq 0 ] && [ `echo -e "$localFiles" | awk '{ print $1 }' | grep $localFilename | wc -l` -gt 1 -o "$3" != "${3/d/foo}" ]; then
-				ftpCommand="${ftpCommand}mkdir $localFilename\n"
-			elif [ `echo -e -n "$remoteFiles" | awk "/^${localFilename}/" | head -1 | cut -d" " -f2` = "-" ] && { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; }; then
-				# there is a file on a remote machine with the same name as our directory and we want to remove it because of program parameters
+				echo -e "mkdir $localFilename\n" > $inPipe
+			elif [ `echo -e -n "$remoteFiles" | awk "/^${localFilename}/" | head -1 | cut -d" " -f2` = "-" ]; then
+				# there is a file on a remote machine with the same name as our directory
 
+				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
+					# if we want to remove the file
+
+					# remove the file and create a directory with such name
+					echo  "
+					del $localFilename
+					mkdir $localFilename
+					pwd
+					" > $inPipe
+					ftpOutput=$( print_outPipe )
+				else
+					# if we want to preserve the file
+
+					# do not upload any files that were supposed to be in this directory
+					remoteFiles=`echo -e "$remoteFiles" | sed -n "/^[^$localFilename]/p"`
+				fi
 				# do remove it
-				echo  "
-				del $localFilename
-				mkdir $localFilen
-				pwd
-				" > $inPipe
-				ftpOutput=$( print_outPipe )
 			fi
 		else
-			echo > /dev/null
 			# it is a file
-			if [ "$3" != "${3/a/foo}" ]; then
-				# if all fiels should be rewrited
-				echo > /dev/null
+
+			# if a remote file or a directory with such name exists
+			escapedLocalFilename=`echo "$localFilename" | sed 's/[^[:alnum:]_-]/\\&/g'`
+			if [ `echo -e "$remoteFiles" | awk "/^$escapedLocalFilename/" | wc -l` -gt 0 ]; then
+				echo "TU"
 			fi			
 		fi
 		
 	done <<< "$localFiles"
 
 else
-	ftpCommand="mget *"
+	echo -e "mget *\n" > $inPipe
 fi
-
-
-# translate \n into new lines and add simulated eof
-ftpCommand=`echo -e "${ftpCommand}pwd\n"`
-
-echo 
-echo -e "$ftpCommand"
-echo
-echo "Transferring files..."
-echo
-
-#
-# attempt to transfer files
-#
-echo -e "$ftpCommand" > $inPipe
 
 echo "Finished."; 
