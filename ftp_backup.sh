@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-# TODO {s sync|a ll|m odified|p reserve} L inks d irectories h iddenFiles
+# TODO {s sync|a ll|m odified} L inks d irectories h iddenFiles
 # TODO make script posix compatible
 
 #
@@ -371,6 +371,11 @@ if $upload; then
 
 else
 	# download ----------------------------------------------------------------------------------------------------
+	remoteFilenames=`echo -e "$remoteFiles" | awk '{ print $1 }'`
+
+	# FIXME remove
+	#echo -e "remoteFiles:\n$remoteFiles"
+	#echo -e "RemoteFilenames:\n$remoteFilenames"
 
 	# if we need to synchronize
 	if [ "$3" != "${3/s/foo}" ] ; then
@@ -397,15 +402,19 @@ else
 
 	# process each file
 	while read remoteFilename ; do
-
-		if [ -d "$remoteFilename" ] ; then
+		escapedRemoteFilename=$( echo "$remoteFilename" | sed 's/[^[:alnum:]_-]/\\&/g' )
+		# FIXME remove
+		#echo "RemoteFilename: $remoteFilename"
+		#echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-d]$/p" | head -1 | awk '{ print $2 }'
+		#echo
+		if [ `echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-d]$/p" | head -1 | awk '{ print $2 }'` = "d" ] ; then
 			# it is a directory
 
 			# if the remote directory does not exist
 			# if this is not an empty directory or if empty directories should be created as well			
-			if [ `echo -e "$localFiles" | awk '{ print $1 }' | awk "/^${remoteFilename}$/" | wc -l` -eq 0 ] && { [ `echo -e "$remoteFiles" | awk '{ print $1 }' | grep $remoteFilename | wc -l` -gt 1 ] || [ "$3" != "${3/d/foo}" ]; }; then
+			if [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-d]$/p" | wc -l` -eq 0 ] && { [ `echo -e "$remoteFiles" | awk '{ print $1 }' | grep $remoteFilename | wc -l` -gt 1 ] || [ "$3" != "${3/d/foo}" ]; }; then
 				mkdir "$remoteFilename"
-			elif [ `echo -e "$localFiles" | awk '{ print $1 }' | awk "/^${remoteFilename}$/" | wc -l` -gt 0 ] && [ `ls -la ${remoteFilename} | head -c1 ` = "-" ]; then
+			elif [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-d]$/p" | wc -l` -gt 0 ] && [ -f "$remoteFilename" ]; then
 				# there is a file on a remote machine with the same name as our directory
 
 				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
@@ -418,17 +427,15 @@ else
 					# if we want to preserve the file
 
 					# do not download any files that were supposed to be in this directory
-					remoteFiles=`echo -e "$remoteFiles" | sed -n "/^[^$remoteFilename]/p"`
+					remoteFiles=`echo -e "$remoteFiles" | sed "!/^${escapedRemoteFilename} [-d]$/d"`
 				fi
 				# do remove it
 			fi
 		else
 			# it is a file
 
-			escapedRemoteFilename=`echo "$remoteFilename" | sed 's/[^[:alnum:]_-]/\\&/g'`
-
 			# if a local file or a directory with such name exists
-			if [ `echo -e "$localFiles" | awk "/^$escapedRemoteFilename/" | wc -l` -gt 0 ]; then
+			if [ `echo -e "$localFiles" | awk "/^[$escapedRemoteFilename]/" | wc -l` -gt 0 ]; then
 
 				# if we might want to overwrite it
 				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
@@ -440,7 +447,7 @@ else
 					fi
 
 					localModTime=`date +%s -r $remoteFilename`
-					remoteModTime=`date +%s -d "\`echo -e "$remoteModTimes" | awk "/^$escapedRemoteFilename/" | head -1 | tr -s " " | cut -d" " -f 2-8\`"`
+					remoteModTime=`date +%s -d "\`echo -e "$remoteModTimes" | awk "/^[$escapedRemoteFilename]/" | head -1 | tr -s " " | cut -d" " -f 2-8\`"`
 
 					# if we want to overwrite it
 					if [ "$3" != "${3/a/foo}" ] || { { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; } && [ "$localModTime" -gt "$remoteModTime" ] ; }; then 
@@ -453,7 +460,7 @@ else
 			fi			
 		fi
 		
-	done <<< `echo -e "$remoteFiles" | awk '{ print $1 }'`
+	done <<< "$remoteFilenames"
 fi
 
 echo "Finished."; 
