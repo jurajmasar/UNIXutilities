@@ -161,14 +161,11 @@ open $server
 user $user $password
 mkdir $path
 cd $path
-ls -R
 pwd
 " > $inPipe
 
 # read ftp output
 ftpOutput=$( print_outPipe ) 
-# remove top two lines caused by mkdir
-ftpOutput=`echo "$ftpOutput" | sed -n '1!p'`
 
 #
 # parse output - look for failure
@@ -177,46 +174,74 @@ if [[ "$ftpOutput" = *"Login failed"* ]]; then
 	echo "Logging into the remote location failed. Aborting."; exit 1;		
 fi
 
-#
-# get a list of remote files
-# -> translates the output of ls -R from ftp into a list of paths to files with the file type (-/d/l etc)
-#
-remoteFiles=`echo -e "$ftpOutput" | sed -n '1!p' | awk '
-BEGIN{
-	prefix=""
-}; 
+load_remote_files()
 {
-	if (NF == 0 || $9 == "." || $9 == "..")
-	{
-		next;
-	} else if (NF == 1) 
-	{
-		sub(/:/, "/", $1);
-		prefix=$1;
-	} else {
-		printf("%s%s %s\n", prefix, $9, substr($1, 1, 1)); 
-	} 
-};
-'`
+	#
+	# list all remote files
+	#
+	echo -e "
+	ls -R
+	pwd
+	" > $inPipe
 
-#
-# fetch modification times from remote server 
-# if option m is used
-#
-if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; then 
-	while read name ftype x ; do
-		if [ -n "$name" ] && [ ! "$ftype" = "d" ]; then
-			echo -e "modtime $name\n" > $inPipe
+	#
+	# get a list of remote files
+	# -> translates the output of ls -R from ftp into a list of paths to files with the file type (-/d/l etc)
+	#
+	remoteFiles=`echo -e "\`print_outPipe\`" | awk '
+	BEGIN{
+		prefix=""
+	}; 
+	{
+		if (NF == 0 || $9 == "." || $9 == "..")
+		{
+			next;
+		} else if (NF == 1) 
+		{
+			sub(/:/, "/", $1);
+			prefix=$1;
+		} else {
+			printf("%s%s %s\n", prefix, $9, substr($1, 1, 1)); 
+		} 
+	};
+	'`
+
+	if ! upload; do
+		# if hidden files should be ignored
+		if [ "$3" = "${3/h/foo}" ]; then
+			# exclude files starting with dot
+			remoteFiles=`echo -e "$remoteFiles" | awk '/^[^\.]/'`
 		fi
-	done <<< "$remoteFiles"
 
-	# insert simulated eof
-	echo -e "pwd\n" > $inPipe
-	
-	# fetch modification times
-	remoteModTimes=$( print_outPipe )
-	echo -e "$remoteModTimes"
-fi
+		# if links should be ignored
+		if [ "$3" = "${3/L/foo}" ]; then
+			# exclude files ending with l
+			remoteFiles=`echo -e "$remoteFiles" | awk '/.*[^l]$/'`
+		fi
+	fi
+
+
+	#
+	# fetch modification times from remote server 
+	# if option m is used
+	#
+	if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; then 
+		while read name ftype x ; do
+			if [ -n "$name" ] && [ ! "$ftype" = "d" ]; then
+				echo -e "modtime $name\n" > $inPipe
+			fi
+		done <<< "$remoteFiles"
+
+		# insert simulated eof
+		echo -e "pwd\n" > $inPipe
+		
+		# fetch modification times
+		remoteModTimes=$( print_outPipe )
+	fi	
+}
+
+# do load remote files
+load_remote_files $1 $2 $3
 
 #
 # get a list of local files
@@ -232,7 +257,7 @@ findParameters="$findParameters ."
 localFiles=`find $findParameters | sed -n '1!p' | sed 's/\.\/\(.*\)/\1/'`
 
 # if hidden files should be ignored
-if [ "$3" = "${3/L/foo}" ]; then
+if [ "$3" = "${3/h/foo}" ]; then
 	# exclude files starting with dot
 	localFiles=`echo -e "$localFiles" | awk '/^[^\.]/'`
 fi
@@ -241,13 +266,33 @@ fi
 # prepare command for uploading/downloading
 #
 if $upload; then
-	# build set of commands to manipulate files
-	echo "remote files:"
-	echo -e "$remoteFiles"
-	echo
-	
-	while read localFilename ; do
+
+	# if we need to synchronize
+	if [ "$3" != "${3/s/foo}" ] ; then
+		# we want to remove remote files and directories that are no longer present in local version
+		remoteTemp=$( mktemp )
+		localTemp=$( mktemp )
+		echo -e "$remoteFiles" | awk '{ print $1 }' | sort > $remoteTemp
+		echo -e "$localFiles" | awk '{ print $1 }' | sort > $localTemp
 		
+		# get files only on remote location
+		difference=`comp -2 $localTemp $remoteTemp`
+
+		# remove different files
+		while read fileName; do
+			ftp_rm_r "$fileName"
+		done <<< $difference
+
+		# clean up
+		rm $localTemp $remoteTemp > /dev/null 2>&1
+
+		# do load remote files
+		load_remote_files $1 $2 $3
+	fi
+
+	# process each file
+	while read localFilename ; do
+
 		if [ -d "$localFilename" ] ; then
 			# it is a directory
 
@@ -299,10 +344,7 @@ if $upload; then
 					if [ "$3" != "${3/a/foo}" ] || { { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; } && [ "$localModTime" -gt "$remoteModTime" ] ; }; then 
 						echo -e "put $localFilename\n" > $inPipe
 					fi
-
 				fi
-
-
 			else
 				# transfer file
 				echo -e "put $localFilename\n" > $inPipe
