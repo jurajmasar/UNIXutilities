@@ -2,18 +2,17 @@
 
 
 # TODO {s sync|a ll|m odified} L inks d irectories h iddenFiles
-# TODO make script posix compatible
 
 #
 # check dependencies
 #
 command -v ftp > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - ftp.  Aborting."; exit 1; }
-date --version >/dev/null 2>&1 || { echo >&2 "Required dependency is missing - GNU date.  Aborting."; exit 1; }
+date --version > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - GNU date.  Aborting."; exit 1; }
 
 #
 # timeout for waiting for a response of a ftp server
 #
-timeout=3
+timeout=10
 
 #
 # echoes everything from the output pipe until eof
@@ -80,11 +79,11 @@ fi
 #
 # determine the direction of the transfer
 #
-if [[ $1 == *"@"* ]]; then
+if [ "$1" != "${1/@/foo}" ]; then
 	upload=false
 	localPath=$2
 	remotePath=$1
-elif [[ $2 == *"@"* ]]; then
+elif [ "$2" != "${2/@/foo}" ]; then
 	upload=true
 	localPath=$1
 	remotePath=$2
@@ -171,7 +170,7 @@ ftpOutput=$( print_outPipe )
 #
 # parse output - look for failure
 #
-if [[ "$ftpOutput" = *"Login failed"* ]]; then
+if [ "$ftpOutput" != "${ftpOutput/Login failed/foo}" ]; then
 	echo "Logging into the remote location failed. Aborting."; exit 1;		
 fi
 
@@ -212,18 +211,17 @@ load_remote_files()
 
 	if ! $upload; then
 		# if hidden files should be ignored
-		if [ "$3" = "${3/h/foo}" ]; then
+		if [ "$3" != "${3/h/foo}" ]; then
 			# exclude files starting with dot
-			remoteFiles=`echo -e "$remoteFiles" | awk '/^[^\.]/'`
+			remoteFiles=$( echo -e "$remoteFiles" | awk '/^[^\.]/' )
 		fi
 
 		# if links should be ignored
 		if [ "$3" = "${3/L/foo}" ]; then
 			# exclude files ending with l
-			remoteFiles=`echo -e "$remoteFiles" | awk '/.*[^l]$/'`
+			remoteFiles=$( echo -e "$remoteFiles" | awk '/.*[^l]$/' )
 		fi
-	fi
-
+	fi	
 
 	#
 	# fetch modification times from remote server 
@@ -254,7 +252,7 @@ load_local_files()
 	#
 
 	# if links should be followed
-	if [ "$3" = "${3/L/foo}" ]; then
+	if [ "$3" != "${3/L/foo}" ]; then
 		findParameters="-L"
 	fi
 
@@ -263,9 +261,9 @@ load_local_files()
 	localFiles=`find $findParameters | sed -n '1!p' | sed 's/\.\/\(.*\)/\1/'`
 
 	# if hidden files should be ignored
-	if [ "$3" = "${3/h/foo}" ]; then
+	if [ "$3" != "${3/h/foo}" ]; then
 		# exclude files starting with dot
-		localFiles=`echo -e "$localFiles" | awk '/^[^\.]/'`
+		localFiles=$( echo -e "$localFiles" | awk '/^[^\.]/' )
 	fi	
 }
 
@@ -280,6 +278,9 @@ load_local_files $1 $2 $3
 #
 # prepare command for uploading/downloading
 #
+echo
+echo "Transferring files..."
+echo
 if $upload; then
 	# upload ------------------------------------------------------------------------------------------------------
 	# if we need to synchronize
@@ -291,12 +292,12 @@ if $upload; then
 		echo -e "$localFiles" | awk '{ print $1 }' | sort > $localTemp
 		
 		# get files only on remote location
-		difference=`comm -2 $localTemp $remoteTemp`
+		difference=$( comm -1 -3 $localTemp $remoteTemp )
 
 		# remove different files
 		while read fileName; do
 			ftp_rm_r "$fileName"
-		done <<< $difference
+		done <<< "$difference"
 
 		# clean up
 		rm $localTemp $remoteTemp > /dev/null 2>&1
@@ -338,9 +339,8 @@ if $upload; then
 			fi
 		else
 			# it is a file
-
-			escapedLocalFilename=`echo "$localFilename" | sed 's/[^[:alnum:]_-]/\\&/g'`
-
+			escapedLocalFilename=$( echo "$localFilename" | sed 's/[^[:alnum:]_-]/\\&/g' )
+			
 			# if a remote file or a directory with such name exists
 			if [ `echo -e "$remoteFiles" | awk "/^$escapedLocalFilename/" | wc -l` -gt 0 ]; then
 
@@ -371,7 +371,7 @@ if $upload; then
 
 else
 	# download ----------------------------------------------------------------------------------------------------
-	remoteFilenames=`echo -e "$remoteFiles" | awk '{ print $1 }'`
+	remoteFilenames=$( echo -e "$remoteFiles" | awk '{ print $1 }' )
 
 	# FIXME remove
 	#echo -e "remoteFiles:\n$remoteFiles"
@@ -386,12 +386,12 @@ else
 		echo -e "$localFiles" | awk '{ print $1 }' | sort > $localTemp
 		
 		# get files only on remote location
-		difference=`comm -1 $localTemp $remoteTemp`
+		difference=$( comm -2 -3 $localTemp $remoteTemp )
 
 		# remove different files
 		while read fileName; do
 			rm -r "$fileName" > /dev/null 2>&1
-		done <<< $difference
+		done <<< "$difference"
 
 		# clean up
 		rm $localTemp $remoteTemp > /dev/null 2>&1
@@ -405,16 +405,17 @@ else
 		escapedRemoteFilename=$( echo "$remoteFilename" | sed 's/[^[:alnum:]_-]/\\&/g' )
 		# FIXME remove
 		#echo "RemoteFilename: $remoteFilename"
-		#echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-d]$/p" | head -1 | awk '{ print $2 }'
+		#echo "EscapedRemoteFilename: $escapedRemoteFilename"
+		#echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | head -1 | awk '{ print $2 }'
 		#echo
-		if [ `echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-d]$/p" | head -1 | awk '{ print $2 }'` = "d" ] ; then
+		if [ `echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | head -1 | awk '{ print $2 }'` = "d" ] ; then
 			# it is a directory
 
 			# if the remote directory does not exist
 			# if this is not an empty directory or if empty directories should be created as well			
-			if [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-d]$/p" | wc -l` -eq 0 ] && { [ `echo -e "$remoteFiles" | awk '{ print $1 }' | grep $remoteFilename | wc -l` -gt 1 ] || [ "$3" != "${3/d/foo}" ]; }; then
-				mkdir "$remoteFilename"
-			elif [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-d]$/p" | wc -l` -gt 0 ] && [ -f "$remoteFilename" ]; then
+			if [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | wc -l` -eq 0 ] && { [ `echo -e "$remoteFiles" | awk '{ print $1 }' | grep $remoteFilename | wc -l` -gt 1 ] || [ "$3" != "${3/d/foo}" ]; }; then
+				mkdir -p "$remoteFilename"
+			elif [ `echo -e "$localFiles" | awk '{ print $1 }' | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | wc -l` -gt 0 ] && [ -f "$remoteFilename" ]; then
 				# there is a file on a remote machine with the same name as our directory
 
 				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
@@ -422,12 +423,12 @@ else
 
 					# remove the file and create a directory with such name
 					rm -r $remoteFilename > /dev/null 2>&1
-					mkdir $remoteFilename
+					mkdir -p $remoteFilename
 				else
 					# if we want to preserve the file
 
 					# do not download any files that were supposed to be in this directory
-					remoteFiles=`echo -e "$remoteFiles" | sed "!/^${escapedRemoteFilename} [-d]$/d"`
+					remoteFiles=`echo -e "$remoteFiles" | sed "!/^${escapedRemoteFilename} [-dl]$/d"`
 				fi
 				# do remove it
 			fi
@@ -435,19 +436,19 @@ else
 			# it is a file
 
 			# if a local file or a directory with such name exists
-			if [ `echo -e "$localFiles" | awk "/^[$escapedRemoteFilename]/" | wc -l` -gt 0 ]; then
+			if [ `echo -e "$localFiles" | awk "/^${escapedRemoteFilename}/p" | wc -l` -gt 0 ]; then
 
 				# if we might want to overwrite it
 				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
 
 					# if it is a directory
-					if [ `ls -la ${remoteFilename} | head -c1 ` = "d" ]; then
+					if [ -d "$remoteFilename" ]; then
 						# remove it recursively
 						rm -r $remoteFilename
 					fi
 
 					localModTime=`date +%s -r $remoteFilename`
-					remoteModTime=`date +%s -d "\`echo -e "$remoteModTimes" | awk "/^[$escapedRemoteFilename]/" | head -1 | tr -s " " | cut -d" " -f 2-8\`"`
+					remoteModTime=`date +%s -d "\`echo -e "$remoteModTimes" | sed -n "/^${escapedRemoteFilename} /p" | head -1 | tr -s " " | cut -d" " -f 2-8\`"`
 
 					# if we want to overwrite it
 					if [ "$3" != "${3/a/foo}" ] || { { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; } && [ "$localModTime" -gt "$remoteModTime" ] ; }; then 
