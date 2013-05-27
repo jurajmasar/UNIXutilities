@@ -238,8 +238,8 @@ if $upload; then
 				# there is a file or a directory on a remote machine with the same name
 
 				# if we need to remove it
-				if [ "$3" != "${3/m/foo}" -o "$3" != "${3/s/foo}" -o "$3" != "${3/a/foo}"]; then	
-					cat > /dev/null
+				if [ "$3" != "${3/m/foo}" -o "$3" != "${3/s/foo}" -o "$3" != "${3/a/foo}" ]; then	
+					echo > /dev/null
 				fi
 			fi
 		else
@@ -263,15 +263,13 @@ ftpCommand=`echo -e "${ftpCommand}pwd\n"`
 
 echo 
 echo -e "$ftpCommand"
-exit 1;
 
 echo "Transferring files..."
 echo
-echo "Ftp output:"
 
 #
 # attempt to transfer files
 #
 echo -e "$ftpCommand" > $inPipe
-	
+
 echo "Finished."; 
