@@ -228,19 +228,21 @@ if $upload; then
 		
 		if [ -d "$localFilename" ] ; then
 			# it is a directory
-			echo -e "Local directory: $localFilename"
-			
+
 			# if the remote directory does not exist
 			# if this is not an empty directory or if empty directories should be created as well			
 			if [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -eq 0 ] && [ `echo -e "$localFiles" | awk '{ print $1 }' | grep $localFilename | wc -l` -gt 1 -o "$3" != "${3/d/foo}" ]; then
 				ftpCommand="${ftpCommand}mkdir $localFilename\n"
-			elif [ `echo -e "$remoteFiles" | awk '{ print $1 }' | awk "/^${localFilename}$/" | wc -l` -gt 0 ] ; then
-				# there is a file or a directory on a remote machine with the same name
+			elif [ `echo -e -n "$remoteFiles" | awk "/^${localFilename}/" | head -1 | cut -d" " -f2` = "-" ] && { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; }; then
+				# there is a file on a remote machine with the same name as our directory and we want to remove it because of program parameters
 
-				# if we need to remove it
-				if [ "$3" != "${3/m/foo}" -o "$3" != "${3/s/foo}" -o "$3" != "${3/a/foo}" ]; then	
-					echo > /dev/null
-				fi
+				# do remove it
+				echo  "
+				del $localFilename
+				mkdir $localFilen
+				pwd
+				" > $inPipe
+				ftpOutput=$( print_outPipe )
 			fi
 		else
 			echo > /dev/null
@@ -263,7 +265,7 @@ ftpCommand=`echo -e "${ftpCommand}pwd\n"`
 
 echo 
 echo -e "$ftpCommand"
-
+echo
 echo "Transferring files..."
 echo
 
