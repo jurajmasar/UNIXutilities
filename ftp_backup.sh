@@ -1,8 +1,5 @@
 #!/bin/bash
 
-
-# TODO {s sync|a ll|m odified} L inks d irectories h iddenFiles
-
 #
 # check dependencies
 #
@@ -13,6 +10,85 @@ date --version > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - 
 # timeout for waiting for a response of a ftp server
 #
 timeout=10
+
+# prints the version
+print_version() {
+	echo "FTPmirror 1.0"
+}
+
+#
+# prints usage instructions
+#
+print_usage() 
+{
+	echo "Usage: $0 sourcePath destinationPath [{s|a|m}|d|L|h]"
+}
+
+print_help()
+{
+	print_version
+	echo
+	print_usage
+	echo
+
+read -d '' description <<"BLOCK"
+
+Utility for mirroring contents of folders via FTP.
+
+Parameters:
+
+  $0 sourcePath destinationPath options
+
+  sourcePath       # Location of the folder to be mirrored
+                   #
+  				   # Examples:
+  				   #   .
+  				   #   backups/
+  				   #   /var/backups/
+  				   #   user@example.com # will be asked for password interactively
+  				   #   user:password@example.com:path/
+
+  destinationPath  # Destination of mirroring
+  				   # Examples:
+  				   #   .
+  				   #   backups/
+  				   #   /var/backups/
+  				   #   user@example.com # will be asked for password interactively
+  				   #   user:password@example.com:path/
+
+  # Important:
+  # One of sourcePath or destinationPath must be local and the other must be remote
+
+  options:         # Set of complementary options passed together as a third parameter
+
+    d              # Create empty directories
+    L              # Follow symlinks
+    h              # Ignore hidden files
+    n              # Do not ask for password interactively when password is not given
+
+  	mode:          # Files in destination folder DO NOT get overwritten by default.
+  	               # This behavior can be changed using following flags:
+      
+                   s # Synchronization
+                   a 
+                   m
+    
+Special parameters:
+  -v         # Display script version number and quit
+  -h         # Display this help message and quit
+
+Dependencies:
+  ftp        # Internet file transfer program that is typically included with UNIX-like OS
+  date (GNU) # GNU version of the date utility
+
+Examples:
+
+
+BLOCK
+
+	echo "$description"
+
+}
 
 #
 # echoes everything from the output pipe until eof
@@ -31,15 +107,6 @@ print_outPipe()
 
 		echo "$line"
 	done < $outPipe
-}
-
-#
-# prints usage instructions
-#
-print_usage() 
-{
-	# TODO
-	echo "Usage: $0 {--help}"
 }
 
 #
@@ -69,11 +136,15 @@ ftp_rm_r()
 }
 
 #
-# check for special arguments
+# check for special arguments - help
 #
-if [ "$1" == "--help" ]; then
-	print_usage
-	# options are present
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+	print_help
+	exit 0
+fi
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+	print_version
+	exit 0
 fi
 
 #
@@ -373,10 +444,6 @@ else
 	# download ----------------------------------------------------------------------------------------------------
 	remoteFilenames=$( echo -e "$remoteFiles" | awk '{ print $1 }' )
 
-	# FIXME remove
-	#echo -e "remoteFiles:\n$remoteFiles"
-	#echo -e "RemoteFilenames:\n$remoteFilenames"
-
 	# if we need to synchronize
 	if [ "$3" != "${3/s/foo}" ] ; then
 		# we want to remove remote files and directories that are no longer present in local version
@@ -403,11 +470,7 @@ else
 	# process each file
 	while read remoteFilename ; do
 		escapedRemoteFilename=$( echo "$remoteFilename" | sed 's/[^[:alnum:]_-]/\\&/g' )
-		# FIXME remove
-		#echo "RemoteFilename: $remoteFilename"
-		#echo "EscapedRemoteFilename: $escapedRemoteFilename"
-		#echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | head -1 | awk '{ print $2 }'
-		#echo
+
 		if [ `echo -e "$remoteFiles" | sed -n "/^${escapedRemoteFilename} [-dl]$/p" | head -1 | awk '{ print $2 }'` = "d" ] ; then
 			# it is a directory
 
