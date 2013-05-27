@@ -3,10 +3,12 @@
 
 # TODO {s sync|a ll|m odified|p reserve} L inks d irectories h iddenFiles
 # TODO make script posix compatible
+
 #
-# check dependency - ftp command
+# check dependencies
 #
 command -v ftp > /dev/null 2>&1 || { echo >&2 "Required dependency is missing - ftp.  Aborting."; exit 1; }
+date --version >/dev/null 2>&1 || { echo >&2 "Required dependency is missing - GNU date.  Aborting."; exit 1; }
 
 #
 # timeout for waiting for a response of a ftp server
@@ -39,6 +41,32 @@ print_usage()
 {
 	# TODO
 	echo "Usage: $0 {--help}"
+}
+
+#
+# resursively removes remote file or a directory
+#
+ftp_rm_r()
+{
+	escapedLocalFilename=`echo "$1" | sed 's/[^[:alnum:]_-]/\\&/g'`
+			
+	filesToDelete=`echo -e "$remoteFiles" |  awk "/^$escapedLocalFilename/"`
+	remoteFiles=`echo -e "$remoteFiles" |  awk "!/^$escapedLocalFilename/"`
+	remoteModTimes=`echo -e "$remoteModTimes" |  awk "!/^$escapedLocalFilename/"`
+	
+	# remove all files
+	while read name ftype x ; do
+		if [ "$ftype" = "-" ]; then
+			echo -e "del $name\n" > $inPipe
+		fi
+	done <<< "$filesToDelete"
+
+	# remove all directories
+	while read name ftype x ; do
+		if [ "$ftype" = "d" ]; then
+			echo -e "rmdir $name\n" > $inPipe
+		fi
+	done <<< "$filesToDelete"
 }
 
 #
@@ -175,7 +203,7 @@ BEGIN{
 # fetch modification times from remote server 
 # if option m is used
 #
-if [ "$3" != "${3/m/foo}" ]; then 
+if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; then 
 	while read name ftype x ; do
 		if [ -n "$name" ] && [ ! "$ftype" = "d" ]; then
 			echo -e "modtime $name\n" > $inPipe
@@ -187,6 +215,7 @@ if [ "$3" != "${3/m/foo}" ]; then
 	
 	# fetch modification times
 	remoteModTimes=$( print_outPipe )
+	echo -e "$remoteModTimes"
 fi
 
 #
@@ -253,7 +282,30 @@ if $upload; then
 			# if a remote file or a directory with such name exists
 			escapedLocalFilename=`echo "$localFilename" | sed 's/[^[:alnum:]_-]/\\&/g'`
 			if [ `echo -e "$remoteFiles" | awk "/^$escapedLocalFilename/" | wc -l` -gt 0 ]; then
-				echo "TU"
+
+				# if we might want to overwrite it
+				if [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ] || [ "$3" != "${3/a/foo}" ]; then
+
+					# if it is a directory
+					if [ `echo -e "$remoteFiles" | awk "/^$escapedLocalFilename/" | head -1 | cut -d" " -f2` = "d" ]; then
+						# remove it recursively
+						ftp_rm_r $localFilename
+					fi
+
+					localModTime=`date +%s -r $localFilename`
+					remoteModTime=`date +%s -d "\`echo -e "$remoteModTimes" | awk "/^$escapedLocalFilename/" | head -1 | tr -s " " | cut -d" " -f 2-8\`"`
+
+					# if we want to overwrite it
+					if [ "$3" != "${3/a/foo}" ] || { { [ "$3" != "${3/m/foo}" ] || [ "$3" != "${3/s/foo}" ]; } && [ "$localModTime" -gt "$remoteModTime" ] ; }; then 
+						echo -e "put $localFilename\n" > $inPipe
+					fi
+
+				fi
+
+
+			else
+				# transfer file
+				echo -e "put $localFilename\n" > $inPipe
 			fi			
 		fi
 		
